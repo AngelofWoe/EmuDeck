@@ -1,20 +1,25 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
+# emuDeckBINUP
+
+# Variables
+# shellcheck disable=2034
 BINUP_toolName="EmuDeck AppImage Updater"
 BINUP_toolType="script"
+# shellcheck disable=2154
 BINUP_toolPath="${toolsPath}/binupdate/binupdate.sh"
-BINUP_Shortcutlocation="$HOME/Desktop/EmuDeckBinUpdate.desktop"
+BINUP_Shortcutlocation="${HOME}/Desktop/EmuDeckBinUpdate.desktop"
 
-
-
-BINUP_install(){
-
-	rsync -avhp --mkpath "$emudeckBackend/tools/binupdate" "$toolsPath/"
+# install
+BINUP_install () {
+	# shellcheck disable=2154
+	rsync -avhp --mkpath "${emudeckBackend}/tools/binupdate" "${toolsPath}/"
 
 	chmod +x "$BINUP_toolPath"
-	#update the paths in the script
-	sed -i "s|/run/media/mmcblk0p1/Emulation/roms|${romsPath}|g" "$BINUP_toolPath"
-	sed -i "s|/run/media/mmcblk0p1/Emulation/tools|${toolsPath}|g" "$BINUP_toolPath"
+	# update the paths in the script
+	# shellcheck disable=2154
+	sed -i "s|/run/media/mmcblk0p1/Emulation/roms|${romsPath}|g" "${BINUP_toolPath}"
+	sed -i "s|/run/media/mmcblk0p1/Emulation/tools|${toolsPath}|g" "${BINUP_toolPath}"
 
 	#createDesktopShortcut "$BINUP_Shortcutlocation" "$BINUP_toolName" "bash $BINUP_toolPath"  "True"
 }

@@ -1,227 +1,233 @@
-#!/bin/bash
-cloud_sync_path="$toolsPath/rclone"
-cloud_sync_bin="$cloud_sync_path/rclone"
-cloud_sync_config="$cloud_sync_path/rclone.conf"
+#!/usr/bin/env bash
 
-cloud_sync_install(){
-  {
+# emuDeckCloudSync
+
+# Variables
+# shellcheck disable=2154
+cloud_sync_path="${toolsPath}/rclone"
+cloud_sync_bin="${cloud_sync_path}/rclone"
+cloud_sync_config="${cloud_sync_path}/rclone.conf"
+
+# install
+cloud_sync_install () {
+    {
+        # startLog ${FUNCNAME[0]}
+        local cloud_sync_provider="${1}"
+        setSetting cloud_sync_provider "${cloud_sync_provider}"
+        setSetting cloud_sync_status "true"
+        rm -rf "${HOME}/.config/systemd/user/EmuDeckCloudSync.service"
+
+        # if [ $system != "darwin" ];then
+        PASS_STATUS=$( passwd -S deck 2> /dev/null )
+        if [ "${PASS_STATUS:5:2}" = "NP" ]; then
+            Plugins_installEmuDecky "Decky!" && Plugins_installPluginLoader "Decky!"
+        else
+            text="$( printf "We need to install our Decky Plugin so you can use CloudSync on Gaming Mode.\nPlease enter your sudo/admin password so we can install it." )"
+
+            PASS=$( zenity --title="Decky CloudSync Plugin Installer" --width=300 --height=100 --entry --hide-text --text="${text}" )
+            ans=$?
+            if [[ "${ans}" -eq 1 ]] || [[ "${ans}" -eq 5 ]]; then
+                exit 1
+            fi
+            if ( echo "${PASS}" | sudo -S -k true ); then
+                Plugins_installEmuDecky "${PASS}" && Plugins_installPluginLoader "${PASS}"
+            else
+                zen_nospam --title="Decky Installer" --width=150 --height=40 --info --text "Incorrect Password"
+            fi
+        fi
+        #fi
+        cloud_sync_createService
+
+        if [ ! -f "${cloud_sync_bin}" ]; then
+            rcloneFile="linux-amd64.zip"
+
+            if [ "${system}" = "darwin" ];then
+                if [ "${appleChip}" == "arm64" ];then
+                    rcloneFile="osx-arm64.zip"
+                else
+                    rcloneFile="osx-amd64.zip"
+                fi
+            fi
+
+            mkdir -p "${cloud_sync_path}"/tmp
+            curl -L "$(getReleaseURLGH "rclone/rclone" "${rcloneFile}")" --output "${cloud_sync_path}/tmp/rclone.temp" && mv "${cloud_sync_path}/tmp/rclone.temp" "${cloud_sync_path}/tmp/rclone.zip"
+
+            unzip -o "${cloud_sync_path}/tmp/rclone.zip" -d "${cloud_sync_path}/tmp/" && rm "${cloud_sync_path}/tmp/rclone.zip"
+            mv "${cloud_sync_path}/tmp/"* "${cloud_sync_path}/tmp/rclone"
+            mv  "${cloud_sync_path}/tmp/rclone/rclone" "${cloud_sync_bin}"
+            rm -rf "${cloud_sync_path}/tmp"
+            chmod +x "${cloud_sync_bin}"
+        fi
+    } > /dev/null
+}
+
+# toggle
+cloud_sync_toggle () {
+  # startLog ${FUNCNAME[0]}
+  local status="${1}"
+  setSetting cloud_sync_status "${status}" > /dev/null
+}
+
+# config
+cloud_sync_config () {
     # startLog ${FUNCNAME[0]}
-    local cloud_sync_provider=$1
-    setSetting cloud_sync_provider "$cloud_sync_provider"
-    setSetting cloud_sync_status "true"
-    rm -rf "$HOME/.config/systemd/user/EmuDeckCloudSync.service" > /dev/null
+    kill -15 "$( pidof rclone )"
+    local cloud_sync_provider="${1}"
+    local token="${2}"
+    cp "${emudeckBackend}/configs/rclone/rclone.conf" "${cloud_sync_config}"
+    cloud_sync_stopService
+    cloud_sync_setup_providers "${token}"
+    setSetting cloud_sync_status "true" && echo "true"
 
-   # if [ $system != "darwin" ];then
-      PASS_STATUS=$(passwd -S deck 2> /dev/null)
-      if [ "${PASS_STATUS:5:2}" = "NP" ]; then
-        Plugins_installEmuDecky "Decky!" && Plugins_installPluginLoader "Decky!"
-      else
-
-        text="$(printf "We need to install our Decky Plugin so you can use CloudSync on Gaming Mode.\nPlease enter your sudo/admin password so we can install it.")"
-
-        PASS=$(zenity --title="Decky CloudSync Plugin Installer" --width=300 --height=100 --entry --hide-text --text="${text}")
-        if [[ $? -eq 1 ]] || [[ $? -eq 5 ]]; then
-            exit 1
-        fi
-        if ( echo "$PASS" | sudo -S -k true ); then
-            Plugins_installEmuDecky "$PASS" && Plugins_installPluginLoader "$PASS"
-        else
-            zen_nospam --title="Decky Installer" --width=150 --height=40 --info --text "Incorrect Password"
-        fi
-      fi
-    #fi
-    cloud_sync_createService
-
-    if [ ! -f "$cloud_sync_bin" ]; then
-
-      rcloneFile="linux-amd64.zip"
-
-      if [ $system = "darwin" ];then
-        if [ $appleChip == "arm64" ];then
-             rcloneFile="osx-arm64.zip"
-        else
-             rcloneFile="osx-amd64.zip"
-        fi
-      fi
-
-      mkdir -p "$cloud_sync_path"/tmp > /dev/null
-      curl -L "$(getReleaseURLGH "rclone/rclone" "$rcloneFile")" --output "$cloud_sync_path/tmp/rclone.temp" && mv "$cloud_sync_path/tmp/rclone.temp" "$cloud_sync_path/tmp/rclone.zip" > /dev/null
-
-      unzip -o "$cloud_sync_path/tmp/rclone.zip" -d "$cloud_sync_path/tmp/" && rm "$cloud_sync_path/tmp/rclone.zip" > /dev/null
-      mv "$cloud_sync_path"/tmp/* "$cloud_sync_path/tmp/rclone"  > /dev/null  #don't quote the *
-      mv  "$cloud_sync_path/tmp/rclone/rclone" "$cloud_sync_bin" > /dev/null
-      rm -rf "$cloud_sync_path/tmp" > /dev/null
-      chmod +x "$cloud_sync_bin" > /dev/null
-    fi
-
-
-  } > /dev/null
-}
-
-cloud_sync_toggle(){
-  # startLog ${FUNCNAME[0]}
-  local status=$1
-  setSetting cloud_sync_status "$status" > /dev/null
-}
-
-cloud_sync_config(){
-  # startLog ${FUNCNAME[0]}
-  kill -15 $(pidof rclone)
-  local cloud_sync_provider=$1
-  local token=$2
-   cp "$emudeckBackend/configs/rclone/rclone.conf" "$cloud_sync_config"
-  cloud_sync_stopService
-  cloud_sync_setup_providers $token
-  setSetting cloud_sync_status "true" && echo "true"
-
-  #Check installation
-  if [ ! -f "$cloud_sync_bin" ]; then
-    echo "false"
-  elif [ ! -f "$cloud_sync_config" ]; then
-    echo "false"
-  elif [ $cloud_sync_provider = '' ]; then
-    echo "false"
-  else
-    echo "true"
-  fi
-}
-
-cloud_sync_setup_providers(){
-  local token=$1
-  setSetting cs_user ""
-  # startLog ${FUNCNAME[0]}
-    if [ "$cloud_sync_provider" == "Emudeck-NextCloud" ]; then
-
-      local url
-      local username
-      local password
-
-      NCInput=$(zenity --forms \
-          --title="Nextcloud Sign in" \
-          --text="Please enter your Nextcloud information here. URL is your webdav url. Use HTTP:// or HTTPS:// please." \
-          --width=300 \
-          --add-entry="URL: " \
-          --add-entry="Username: " \
-          --add-password="Password: " \
-          --separator="," 2>/dev/null)
-          ans=$?
-      if [ $ans -eq 0 ]; then
-        echo "Nextcloud Login"
-        url="$(echo "$NCInput" | awk -F "," '{print $1}')"
-        username="$(echo "$NCInput" | awk -F "," '{print $2}')"
-        password="$(echo "$NCInput" | awk -F "," '{print $3}')"
-
-        "$cloud_sync_bin" config update "$cloud_sync_provider" vendor="nextcloud" url="$url"  user="$username" pass="$("$cloud_sync_bin" obscure $password)"
-      else
-        echo "Cancel Nextcloud Login"
-      fi
-    elif [ "$cloud_sync_provider" == "Emudeck-SFTP" ]; then
-
-      NCInput=$(zenity --forms \
-          --title="SFTP Sign in" \
-          --text="Please enter your SFTP information here." \
-          --width=300 \
-          --add-entry="Host: " \
-          --add-entry="Username: " \
-          --add-password="Password: " \
-          --add-entry="Port: " \
-          --separator="," 2>/dev/null)
-          ans=$?
-      if [ $ans -eq 0 ]; then
-        echo "SFTP Login"
-        host="$(echo "$NCInput" | awk -F "," '{print $1}')"
-        username="$(echo "$NCInput" | awk -F "," '{print $2}')"
-        password="$(echo "$NCInput" | awk -F "," '{print $3}')"
-        port="$(echo "$NCInput" | awk -F "," '{print $4}')"
-
-        "$cloud_sync_bin" config update "$cloud_sync_provider" host="$host" user="$username" port="$port" pass="$password"
-      else
-        echo "Cancel SFTP Login"
-      fi
-
-    elif [ "$cloud_sync_provider" == "Emudeck-cloud" ]; then
-
-        token="${token//---/|||}"
-        user=$(echo $token | cut -d "|" -f 1)
-
-        setSetting cs_user "cs$user/"
-
-        json='{"token":"'"$token"'"}'
-
-        read -r cloud_key_id cloud_key < <(curl --request POST --url "https://token.emudeck.com/b2.php" \
-        --header "Content-Type: application/json" \
-        -d "${json}" | jq -r '[.cloud_key_id, .cloud_key] | @tsv')
-
-        "$cloud_sync_bin" config update "$cloud_sync_provider"  key="$cloud_key" account="$cloud_key_id"
-
-        "$cloud_sync_bin" mkdir "$cloud_sync_provider:"$cs_user"Emudeck/saves"
-        cloud_sync_save_hash $savesPath
-        "$cloud_sync_bin" copy "$savesPath/.hash" "$cloud_sync_provider:"$cs_user"Emudeck/saves"
-
-      elif [ "$cloud_sync_provider" == "Emudeck-SMB" ]; then
-
-
-      NCInput=$(zenity --forms \
-          --title="SMB Sign in" \
-          --text="Please enter your SMB information here." \
-          --width=300 \
-          --add-entry="IP/Host: " \
-          --add-entry="Username: " \
-          --add-password="Password: " \
-          --separator="," 2>/dev/null)
-          ans=$?
-      if [ $ans -eq 0 ]; then
-        echo "SMB Login"
-        host="$(echo "$NCInput" | awk -F "," '{print $1}')"
-        username="$(echo "$NCInput" | awk -F "," '{print $2}')"
-        password="$(echo "$NCInput" | awk -F "," '{print $3}')"
-
-        "$cloud_sync_bin" config update "$cloud_sync_provider" host=$host user=$username pass="$("$cloud_sync_bin" obscure $password)"
-      else
-        echo "Cancel SMB Login"
-      fi
-
+    #Check installation
+    if [ ! -f "${cloud_sync_bin}" ]; then
+        echo "false"
+    elif [ ! -f "$cloud_sync_config" ]; then
+        echo "false"
+    elif [ "${cloud_sync_provider}" = '' ]; then
+        echo "false"
     else
-      "$cloud_sync_bin" config update "$cloud_sync_provider" && echo "true"
+        echo "true"
     fi
 }
 
- cloud_sync_generate_code(){
-   #Lets search for that token
-   # startLog ${FUNCNAME[0]}
-   while read line
-   do
-      if [[ "$line" == *"[Emudeck"* ]]
-      then
+# setup_providers
+cloud_sync_setup_providers () {
+    local token="${1}"
+    setSetting cs_user ""
+    # startLog ${FUNCNAME[0]}
+    if [ "${cloud_sync_provider}" == "Emudeck-NextCloud" ]; then
+        local url
+        local username
+        local password
+
+        NCInput=$(
+            zenity --forms \
+                --title="Nextcloud Sign in" \
+                --text="Please enter your Nextcloud information here. URL is your webdav url. Use HTTP:// or HTTPS:// please." \
+                --width=300 \
+                --add-entry="URL: " \
+                --add-entry="Username: " \
+                --add-password="Password: " \
+                --separator="," 2>/dev/null
+        )
+        ans=$?
+        if [ $ans -eq 0 ]; then
+            echo "Nextcloud Login"
+            url="$(echo "${NCInput}" | awk -F "," '{print $1}')"
+            username="$(echo "${NCInput}" | awk -F "," '{print $2}')"
+            password="$(echo "${NCInput}" | awk -F "," '{print $3}')"
+
+            "${cloud_sync_bin}" config update "${cloud_sync_provider}" vendor="nextcloud" url="${url}"  user="${username}" pass="$( "${cloud_sync_bin}" obscure "${password}" )"
+        else
+            echo "Cancel Nextcloud Login"
+        fi
+    elif [ "${cloud_sync_provider}" == "Emudeck-SFTP" ]; then
+        NCInput=$(
+            zenity --forms \
+                --title="SFTP Sign in" \
+                --text="Please enter your SFTP information here." \
+                --width=300 \
+                --add-entry="Host: " \
+                --add-entry="Username: " \
+                --add-password="Password: " \
+                --add-entry="Port: " \
+                --separator="," 2>/dev/null
+        )
+        ans=$?
+        if [ $ans -eq 0 ]; then
+            echo "SFTP Login"
+            host="$(echo "${NCInput}" | awk -F "," '{print $1}')"
+            username="$(echo "${NCInput}" | awk -F "," '{print $2}')"
+            password="$(echo "${NCInput}" | awk -F "," '{print $3}')"
+            port="$(echo "${NCInput}" | awk -F "," '{print $4}')"
+
+            "${cloud_sync_bin}" config update "${cloud_sync_provider}" host="${host}" user="${username}" port="${port}" pass="${password}"
+        else
+            echo "Cancel SFTP Login"
+        fi
+
+    elif [ "${cloud_sync_provider}" == "Emudeck-cloud" ]; then
+        token="${token//---/|||}"
+        user=$( echo "${token}" | cut -d "|" -f 1 )
+
+        setSetting cs_user "cs${user}/"
+
+        json='{"token":"'"${token}"'"}'
+
+        read -r cloud_key_id cloud_key < <( curl --request POST --url "https://token.emudeck.com/b2.php" \
+            --header "Content-Type: application/json" \
+            -d "${json}" | jq -r '[.cloud_key_id, .cloud_key] | @tsv' )
+
+        "${cloud_sync_bin}" config update "${cloud_sync_provider}"  key="${cloud_key}" account="${cloud_key_id}"
+
+        "${cloud_sync_bin}" mkdir "${cloud_sync_provider}:${cs_user}Emudeck/saves"
+        cloud_sync_save_hash "${savesPath}"
+        "${cloud_sync_bin}" copy "$savesPath/.hash" "${cloud_sync_provider}:${cs_user}Emudeck/saves"
+    elif [ "${cloud_sync_provider}" == "Emudeck-SMB" ]; then
+        NCInput=$(
+            zenity --forms \
+                --title="SMB Sign in" \
+                --text="Please enter your SMB information here." \
+                --width=300 \
+                --add-entry="IP/Host: " \
+                --add-entry="Username: " \
+                --add-password="Password: " \
+                --separator="," 2>/dev/null
+        )
+        ans=$?
+        if [ $ans -eq 0 ]; then
+            echo "SMB Login"
+            host="$(echo "${NCInput}" | awk -F "," '{print $1}')"
+            username="$(echo "${NCInput}" | awk -F "," '{print $2}')"
+            password="$(echo "${NCInput}" | awk -F "," '{print $3}')"
+
+            "${cloud_sync_bin}" config update "${cloud_sync_provider}" host="${host}" user="${username}" pass="$("${cloud_sync_bin}" obscure "${password}" )"
+        else
+            echo "Cancel SMB Login"
+        fi
+    else
+        "${cloud_sync_bin}" config update "${cloud_sync_provider}" && echo "true"
+    fi
+}
+
+# generate_code
+cloud_sync_generate_code () {
+    #Lets search for that token
+    # startLog ${FUNCNAME[0]}
+    while read -r line
+    do
+        if [[ "${line}" == *"[Emudeck"* ]]
+        then
         section=$line
-      elif [[ "$line" == *"token == "* ]]; then
+        elif [[ "${line}" == *"token == "* ]]; then
         token=$line
         break
-      fi
+        fi
 
-   done < $cloud_sync_config
+    done < "${cloud_sync_config}"
 
-   replace_with=""
+    replace_with=""
 
-   # Cleanup
-   token=${token/"token == "/$replace_with}
-   token=$(echo "$token" | sed "s/\"/'/g")
-   section=$(echo "$section" | sed 's/[][]//g; s/"//g')
+    # Cleanup
+    token=${token/"token == "/$replace_with}
+    token=$(echo "$token" | sed "s/\"/'/g")
+    section=$(echo "$section" | sed 's/[][]//g; s/"//g')
 
-   json='{"section":"'"$section"'","token":"'"$token"'"}'
+    json='{"section":"'"$section"'","token":"'"$token"'"}'
 
-   #json=$token
+    #json=$token
 
-   response=$(curl --request POST --url "https://patreon.emudeck.com/hastebin.php" --header "content-type: #application/x-www-form-urlencoded" --data-urlencode "data=${json}")
-   text="$(printf "<b>CloudSync Configured!</b>\nIf you want to set CloudSync on another EmuDeck installation you need to use #this code:\n\n<b>${response}</b>")"
+    response=$(curl --request POST --url "https://patreon.emudeck.com/hastebin.php" --header "content-type: #application/x-www-form-urlencoded" --data-urlencode "data=${json}")
+    text="$(printf "<b>CloudSync Configured!</b>\nIf you want to set CloudSync on another EmuDeck installation you need to use #this code:\n\n<b>${response}</b>")"
 
     zenity --info --width=300 \
-   --text="${text}" 2>/dev/null
+    --text="${text}" 2>/dev/null
 
-   clean_response=$(echo -n "$response" | tr -d '\n')
- }
+    clean_response=$(echo -n "$response" | tr -d '\n')
+}
 
- cloud_sync_config_with_code(){
+ cloud_sync_config_with_code () {
    # startLog ${FUNCNAME[0]}
    local code=$1
    if [ $code ]; then
@@ -253,7 +259,7 @@ cloud_sync_setup_providers(){
 
  }
 
-cloud_sync_install_and_config(){
+cloud_sync_install_and_config () {
    #startLog ${FUNCNAME[0]}
    local cloud_sync_provider=$1
      local token=$2
@@ -268,13 +274,13 @@ cloud_sync_install_and_config(){
          xdg-settings set default-web-browser com.google.Chrome.desktop
        fi
 
-       if [ ! -f "$cloud_sync_bin" ]; then
-         cloud_sync_install $cloud_sync_provider
+       if [ ! -f "${cloud_sync_bin}" ]; then
+         cloud_sync_install ${cloud_sync_provider}
        fi
        fi
-   } && cloud_sync_config "$cloud_sync_provider" "$token"
+   } && cloud_sync_config "${cloud_sync_provider}" "$token"
 
-   setSetting cloud_sync_provider "$cloud_sync_provider"
+   setSetting cloud_sync_provider "${cloud_sync_provider}"
    setSetting cloud_sync_status "true"
 
    #We get the previous default browser back
@@ -285,23 +291,23 @@ cloud_sync_install_and_config(){
      fi
  }
 
-cloud_sync_install_and_config_with_code(){
+cloud_sync_install_and_config_with_code () {
     # startLog ${FUNCNAME[0]}
     local cloud_sync_provider=$1
     code=$(zenity --entry --text="Please enter your SaveSync code")
-    cloud_sync_install "$cloud_sync_provider"
+    cloud_sync_install "${cloud_sync_provider}"
     cloud_sync_config_with_code $code
 }
 
 
-cloud_sync_uninstall(){
+cloud_sync_uninstall () {
   # startLog ${FUNCNAME[0]}
   setSetting cloud_sync_status "false" > /dev/null
-  rm -rf "$cloud_sync_bin" && rm -rf "$cloud_sync_config" && echo "true"
+  rm -rf "${cloud_sync_bin}" && rm -rf "$cloud_sync_config" && echo "true"
 }
 
 
-cloud_sync_upload(){
+cloud_sync_upload () {
   # startLog ${FUNCNAME[0]}
   local emuName=$1
   local timestamp=$(date +%s)
@@ -311,7 +317,7 @@ cloud_sync_upload(){
 
     if [ "$emuName" = "all" ]; then
         cloud_sync_save_hash $savesPath
-        ("$cloud_sync_bin" copy --fast-list --update --tpslimit 12 --log-file "$emudeckLogs/rclone.log" --checkers=50 -P -L --exclude=/.fail_upload --exclude=/BigPEmuConfig.bigpcfg --exclude=/.fail_download --exclude=/system/prod.keys --exclude=/system/title.keys --exclude=/.pending_upload  --exclude=/.last_upload --exclude=/es-de/** "$savesPath" "$cloud_sync_provider":"$cs_user"Emudeck/saves/ && (
+        ("${cloud_sync_bin}" copy --fast-list --update --tpslimit 12 --log-file "$emudeckLogs/rclone.log" --checkers=50 -P -L --exclude=/.fail_upload --exclude=/BigPEmuConfig.bigpcfg --exclude=/.fail_download --exclude=/system/prod.keys --exclude=/system/title.keys --exclude=/.pending_upload  --exclude=/.last_upload --exclude=/es-de/** "$savesPath" "${cloud_sync_provider}":"$cs_user"Emudeck/saves/ && (
           local baseFolder="$savesPath/"
            for folder in $baseFolder*/
             do
@@ -323,7 +329,7 @@ cloud_sync_upload(){
         ))
     else
         cloud_sync_save_hash "$savesPath/$emuName"
-        ("$cloud_sync_bin" copy --fast-list --update --tpslimit 12 --log-file "$emudeckLogs/rclone.log" --checkers=50 -P -L --exclude=/.fail_upload --exclude=/BigPEmuConfig.bigpcfg --exclude=/.fail_download --exclude=/system/prod.keys --exclude=/system/title.keys --exclude=/.pending_upload  --exclude=/.last_upload --exclude=/es-de/** "$savesPath/$emuName" "$cloud_sync_provider":"$cs_user"Emudeck/saves/$emuName/ && echo $timestamp > "$savesPath"/$emuName/.last_upload && rm -rf $savesPath/$emuName/.fail_upload)
+        ("${cloud_sync_bin}" copy --fast-list --update --tpslimit 12 --log-file "$emudeckLogs/rclone.log" --checkers=50 -P -L --exclude=/.fail_upload --exclude=/BigPEmuConfig.bigpcfg --exclude=/.fail_download --exclude=/system/prod.keys --exclude=/system/title.keys --exclude=/.pending_upload  --exclude=/.last_upload --exclude=/es-de/** "$savesPath/$emuName" "${cloud_sync_provider}":"$cs_user"Emudeck/saves/$emuName/ && echo $timestamp > "$savesPath"/$emuName/.last_upload && rm -rf $savesPath/$emuName/.fail_upload)
     fi
     cloud_sync_unlock
   fi
@@ -331,7 +337,7 @@ cloud_sync_upload(){
 
 }
 
-cloud_sync_download(){
+cloud_sync_download () {
   local branch=$(cd "$emudeckBackend" && git rev-parse --abbrev-ref HEAD)
   if [[ "$branch" == *"early"* ]] || [ "$branch" == "dev" ] ; then
     echo "CloudSync Downloading"
@@ -351,13 +357,13 @@ cloud_sync_download(){
         local filePath="$savesPath/.hash"
         local hash=$(cat "$savesPath/.hash")
 
-       "$cloud_sync_bin"  --progress copyto -L --fast-list --checkers=50 --transfers=50 --low-level-retries 1 --retries 1 "$cloud_sync_provider":"$cs_user"Emudeck/saves/.hash "$filePath" || upload="false"
+       "${cloud_sync_bin}"  --progress copyto -L --fast-list --checkers=50 --transfers=50 --low-level-retries 1 --retries 1 "${cloud_sync_provider}":"$cs_user"Emudeck/saves/.hash "$filePath" || upload="false"
 
         hashCloud=$(cat "$savesPath/.hash")
 
         if [ -f "$savesPath/.hash" ] && [ "$hash" != "$hashCloud" ]; then
 
-             "$cloud_sync_bin" copy --fast-list --update --tpslimit 12 --log-file "$emudeckLogs/rclone.log" --checkers=50 -P -L  --exclude=/.fail_upload --exclude=/BigPEmuConfig.bigpcfg --exclude=/.fail_download --exclude=/system/prod.keys --exclude=/system/title.keys --exclude=/.pending_upload  --exclude=/.last_upload --exclude=/es-de/** "$cloud_sync_provider":"$cs_user"Emudeck/saves/ "$savesPath" && (
+             "${cloud_sync_bin}" copy --fast-list --update --tpslimit 12 --log-file "$emudeckLogs/rclone.log" --checkers=50 -P -L  --exclude=/.fail_upload --exclude=/BigPEmuConfig.bigpcfg --exclude=/.fail_download --exclude=/system/prod.keys --exclude=/system/title.keys --exclude=/.pending_upload  --exclude=/.last_upload --exclude=/es-de/** "${cloud_sync_provider}":"$cs_user"Emudeck/saves/ "$savesPath" && (
                 local baseFolder="$savesPath/"
                  for folder in $baseFolder*/
                   do
@@ -379,12 +385,12 @@ cloud_sync_download(){
         local filePath="$savesPath/$emuName/.hash"
         local hash=$(cat "$savesPath/$emuName/.hash")
 
-        "$cloud_sync_bin"  --progress copyto -L --fast-list --checkers=50 --transfers=50 --low-level-retries 1 --retries 1 "$cloud_sync_provider":"$cs_user"Emudeck/saves/$emuName/.hash "$filePath"
+        "${cloud_sync_bin}"  --progress copyto -L --fast-list --checkers=50 --transfers=50 --low-level-retries 1 --retries 1 "${cloud_sync_provider}":"$cs_user"Emudeck/saves/$emuName/.hash "$filePath"
 
         hashCloud=$(cat "$savesPath/$emuName/.hash")
 
         if [ -f "$savesPath/$emuName/.hash" ] && [ "$hash" != "$hashCloud" ];then
-            "$cloud_sync_bin" copy --fast-list --update --tpslimit 12 --log-file "$emudeckLogs/rclone.log" --checkers=50 -P -L --exclude=/.fail_upload --exclude=/BigPEmuConfig.bigpcfg --exclude=/.fail_download --exclude=/system/prod.keys --exclude=/system/title.keys --exclude=/.pending_upload  --exclude=/.last_upload --exclude=/es-de/** "$cloud_sync_provider":"$cs_user"Emudeck/saves/$emuName/ "$savesPath"/$emuName/ && echo $timestamp > "$savesPath"/$emuName/.last_download && rm -rf $savesPath/$emuName/.fail_download
+            "${cloud_sync_bin}" copy --fast-list --update --tpslimit 12 --log-file "$emudeckLogs/rclone.log" --checkers=50 -P -L --exclude=/.fail_upload --exclude=/BigPEmuConfig.bigpcfg --exclude=/.fail_download --exclude=/system/prod.keys --exclude=/system/title.keys --exclude=/.pending_upload  --exclude=/.last_upload --exclude=/es-de/** "${cloud_sync_provider}":"$cs_user"Emudeck/saves/$emuName/ "$savesPath"/$emuName/ && echo $timestamp > "$savesPath"/$emuName/.last_download && rm -rf $savesPath/$emuName/.fail_download
         else
           echo "up to date"
         fi
@@ -393,7 +399,7 @@ cloud_sync_download(){
 
 }
 
-cloud_sync_createBackup (){
+cloud_sync_createBackup  () {
   # startLog ${FUNCNAME[0]}
   local emuName=$1
   local date=$(date +"%D");
@@ -404,13 +410,13 @@ cloud_sync_createBackup (){
 }
 
 
-cloud_sync_uploadEmu(){
+cloud_sync_uploadEmu () {
   # startLog ${FUNCNAME[0]}
   local emuName=$1
   local mode=$2
   local time_stamp
-  if [ -f "$cloud_sync_bin" ] && [ "$cloud_sync_status" == "true" ]; then
-    if [[ $cloud_sync_provider != *"Emudeck"* ]]; then
+  if [ -f "${cloud_sync_bin}" ] && [ "$cloud_sync_status" == "true" ]; then
+    if [[ ${cloud_sync_provider} != *"Emudeck"* ]]; then
 
       text="$(printf "CloudSync is not properly configured, please configure it again from EmuDeck")"
       zenity --title="CloudSync Error" --width=300 --height=100 --info --text="${text}"
@@ -482,7 +488,7 @@ cloud_sync_uploadEmu(){
   fi
 }
 
-cloud_sync_downloadEmu(){
+cloud_sync_downloadEmu () {
 
   # startLog ${FUNCNAME[0]}
   local emuName=$1
@@ -490,10 +496,10 @@ cloud_sync_downloadEmu(){
 
   echo $emuName > "$savesPath/.emuName"
 
-  if [ -f "$cloud_sync_bin" ]; then
+  if [ -f "${cloud_sync_bin}" ]; then
     local timestamp=$(date +%s)
-    if [ -f "$cloud_sync_bin" ] && [ "$cloud_sync_status" == "true" ]; then
-      if [[ $cloud_sync_provider != *"Emudeck"* ]]; then
+    if [ -f "${cloud_sync_bin}" ] && [ "$cloud_sync_status" == "true" ]; then
+      if [[ ${cloud_sync_provider} != *"Emudeck"* ]]; then
 
         text="$(printf "CloudSync is not properly configured, please configure it again from EmuDeck")"
         zenity --title="CloudSync Error" --width=300 --height=100 --info --text="${text}"
@@ -607,20 +613,20 @@ cloud_sync_downloadEmu(){
   fi
 }
 
-cloud_sync_downloadEmuAll(){
+cloud_sync_downloadEmuAll () {
  cloud_sync_createService
  cloud_sync_download 'all'
 }
 
 
-cloud_sync_uploadEmuAll(){
+cloud_sync_uploadEmuAll () {
   cloud_sync_createService
   cloud_sync_upload 'all'
 }
 
 
 
-cloud_sync_save_hash(){
+cloud_sync_save_hash () {
   # startLog ${FUNCNAME[0]}
   local dir=$1
 
@@ -633,12 +639,12 @@ cloud_sync_save_hash(){
 }
 
 
-cloud_sync_createService(){
+cloud_sync_createService () {
   startLog ${FUNCNAME[0]}
   echo "Creating CloudSync service"
   local service_name="EmuDeckCloudSync"
   local script_path="$emudeckBackend/tools/cloudSync/cloud_sync_watcher.sh"
-  local user_service_dir="$HOME/.config/systemd/user/"
+  local user_service_dir="${HOME}/.config/systemd/user/"
   mkdir -p $user_service_dir
   touch "$user_service_dir/$service_name.service"
   cat <<EOF > "$user_service_dir/$service_name.service"
@@ -655,7 +661,7 @@ EOF
   echo "$service_name created"
 }
 
-cloud_sync_startService(){
+cloud_sync_startService () {
   if [ $cloud_sync_status = "true" ]; then
     startLog ${FUNCNAME[0]}
     systemctl --user stop "EmuDeckCloudSync.service"
@@ -663,25 +669,25 @@ cloud_sync_startService(){
   fi
 }
 
-cloud_sync_stopService(){
+cloud_sync_stopService () {
   startLog ${FUNCNAME[0]}
   systemctl --user stop "EmuDeckCloudSync.service"
 }
 
 
-cloud_sync_lock(){
+cloud_sync_lock () {
   # startLog ${FUNCNAME[0]}
  touch "$emudeckFolder/cloud.lock"
 }
 
-cloud_sync_unlock(){
+cloud_sync_unlock () {
   # startLog ${FUNCNAME[0]}
   rm -rf "$emudeckFolder/cloud.lock"
 }
 
-cloud_sync_check_lock(){
+cloud_sync_check_lock () {
   # startLog ${FUNCNAME[0]}
-  lockedFile="$HOME\emudeck\cloud.lock"
+  lockedFile="${HOME}\emudeck\cloud.lock"
 
   if [ -f $lockedFile ]; then
    text="$(printf "<b>CloudSync in progress!</b>\nWe're syncing your saved games, please wait...")"
@@ -702,7 +708,7 @@ cloud_sync_check_lock(){
 
 
 
-cloud_decky_check_status(){
+cloud_decky_check_status () {
   # startLog ${FUNCNAME[0]}
 
   #Non cloudsync
